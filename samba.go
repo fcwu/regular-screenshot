@@ -72,10 +72,8 @@ func (s *_Samba) Start() error {
 }
 
 func (s *_Samba) Stop() error {
-	// nil pointer violation
-	// _ = s.mount.Umount()
-	// return s.session.Logoff()
-	return nil
+	_ = s.mount.Umount()
+	return s.session.Logoff()
 }
 
 func (s *_Samba) WithCredentials(username, password string) Samba {

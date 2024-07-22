@@ -18,17 +18,10 @@ import (
 
 var (
 	DependenciesNotInstalledError = errors.New("Required dependencies are not installed")
-
-	_externalExections = []string{
-		"ffmpeg",
-		"xrandr",
-	}
+	EnvironmentNotSetError        = errors.New("Required environment variables are not set")
 )
 
 func serve(cmd *cobra.Command, args []string) error {
-
-	// Set the display environment variable
-	os.Setenv("DISPLAY", ":0")
 
 	if err := checkDependencies(); err != nil {
 		panic(err)
@@ -70,7 +63,7 @@ func serve(cmd *cobra.Command, args []string) error {
 			if !isDesktopActive(desktopUsername) {
 				continue
 			}
-			reader, err := takeScrrenshot()
+			reader, closer, err := takeScrrenshot()
 			if err != nil {
 				fmt.Println("Error taking screenshot:", err)
 				continue
@@ -79,6 +72,7 @@ func serve(cmd *cobra.Command, args []string) error {
 				fmt.Println("Error uploading screenshot:", err)
 			}
 			reader.Close()
+			closer()
 		}
 	}()
 
@@ -93,12 +87,29 @@ func serve(cmd *cobra.Command, args []string) error {
 
 // Check if the required dependencies are installed
 func checkDependencies() error {
-	for _, command := range _externalExections {
+	externalExecutions := []string{
+		"ffmpeg",
+		"xrandr",
+		"loginctl",
+	}
+	externalEnvs := []string{
+		"DISPLAY",
+		"XAUTHORITY",
+	}
+
+	for _, command := range externalExecutions {
 		_, err := exec.LookPath(command)
 		if err != nil {
 			return errors.Join(DependenciesNotInstalledError, err)
 		}
 	}
+
+	for _, env := range externalEnvs {
+		if os.Getenv(env) == "" {
+			return errors.Join(EnvironmentNotSetError, errors.New(env))
+		}
+	}
+
 	return nil
 }
 
@@ -146,9 +157,9 @@ func isDesktopActive(desktopUsername string) bool {
 		for _, line := range lines {
 			fields := strings.Split(line, "=")
 			if len(fields) == 2 && fields[0] == "Remote" {
-				remote = fields[1] == "no\n"
+				remote = fields[1] == "yes"
 			} else if len(fields) == 2 && fields[0] == "LockedHint" {
-				locked = fields[1] == "no\n"
+				locked = fields[1] == "yes"
 			}
 		}
 		return !remote && !locked
@@ -176,7 +187,7 @@ func isDesktopActive(desktopUsername string) bool {
 	return false
 }
 
-func takeScrrenshot() (io.ReadCloser, error) {
+func takeScrrenshot() (io.ReadCloser, func(), error) {
 	// Take a screenshot of the current screen
 	// xrandr
 	// Screen 0: minimum 8 x 8, current 4480 x 1440, maximum 32767 x 32767
@@ -214,7 +225,7 @@ func takeScrrenshot() (io.ReadCloser, error) {
 	cmd := exec.Command("xrandr")
 	output, err := cmd.Output()
 	if err != nil {
-		panic(err)
+		return nil, nil, err
 	}
 
 	screenWidth, screenHeight := 0, 0
@@ -231,29 +242,41 @@ func takeScrrenshot() (io.ReadCloser, error) {
 	}
 
 	// ffmpeg -f x11grab -video_size 3840x1080 -i :0.0 -vframes 1 -f image2pipe -vcodec png -
-	cmd = exec.Command(
+	commands := []string{
 		"ffmpeg",
 		"-f", "x11grab",
 		"-video_size",
 		fmt.Sprintf("%dx%d", screenWidth, screenHeight),
-		"-i", ":0.0",
+		"-i", os.Getenv("DISPLAY"),
 		"-vframes", "1",
 		"-f", "image2pipe", "-vcodec", "png", "-",
-	)
+	}
+	// fmt.Printf("%s\n", strings.Join(commands, " "))
+	cmd = exec.Command(commands[0], commands[1:]...)
 	cmd.Stderr = nil
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	err = cmd.Start()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	go func() {
+	closer := func() {
 		err := cmd.Wait()
 		if err != nil {
 			fmt.Printf("Error taking screenshot: %v\n", err)
 		}
-	}()
-	return stdout, nil
+	}
+	return stdout, closer, nil
+}
+
+func notifyUser() {
+	// Notify the user that the screenshot has been taken
+	// notify-send "Screenshot taken"
+	// XAUTHORITY=/run/user/1004/gdm/Xauthority DISPLAY=:1 zenity --info --text="This is a test message"
+}
+
+func terminalSession() {
+	// sudo loginctl terminate-session 4
 }

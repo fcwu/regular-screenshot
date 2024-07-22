@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Exec=/usr/local/bin/regular-screenshot --desktop-username dong --samba-host 192.168.0.50:445 --samba-username dong-upload --samba-password ilovedong1 -s dong -i 60
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Regular Screenshot
